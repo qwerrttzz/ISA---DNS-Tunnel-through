@@ -1,19 +1,45 @@
 //Serverová aplikace bude naslouchat na implicitním portu pro DNS komunikaci. -Done
-//Příchozí datové přenosy bude ukládat na disk ve formě souborů.              -not Done
-//Komunikační protokol mezi klientem a serverem je implementační detail.      -not Done
+//Příchozí datové přenosy bude ukládat na disk ve formě souborů.              -Done
+//Komunikační protokol mezi klientem a serverem je implementační detail.      
 //
 //dns_receiver {BASE_HOST} {DST_FILEPATH}
 //$ dns_receiver example.com ./data
 //
-//{BASE_HOST} slouží k nastavení bázové domény k příjmu dat
+//{BASE_HOST} slouží k nastavení bázové domény k příjmu dat                   -not Done
 //{DST_FILEPATH} cesta pod kterou se budou všechny příchozí data/soubory ukládat (cesta specifikovaná klientem bude vytvořena pod tímto adresářem)
 
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-int main(int argc, char const *argv[])
-{    
+typedef struct arguments {
+    char* BASE_HOST;
+    char* DST_FILEPATH;
+} Arguments;
+
+int parseArguments(int argc, char** argv, Arguments* myArguments){
+    if (argc == 3){
+        myArguments->BASE_HOST= argv[1];
+        myArguments->DST_FILEPATH = argv[2];
+        return 0;
+    }
+    else{
+        return 1;
+    }
+    
+}
+
+int main(int argc, char *argv[])
+{   
+    //parsovanie argumentov 
+    Arguments myArguments = {};
+    if(parseArguments(argc, argv, &myArguments) != 0){
+        fprintf(stderr,"wrong arguments");
+    }
+    printf("BASE_HOST:%s\n",myArguments.BASE_HOST);
+    printf("DST_FILEPATH:%s\n",myArguments.DST_FILEPATH);
+    fflush(stdout);
+
     int family = PF_INET;
     int type = SOCK_STREAM;
     int protocol = 0;
@@ -33,12 +59,25 @@ int main(int argc, char const *argv[])
     unsigned int clientAddressLen = sizeof(clientAddress);
     int s = accept(socketId, (struct sockaddr *) &clientAddress, &clientAddressLen);
 
+    FILE* file = fopen(myArguments.DST_FILEPATH, "w");
     char buffer[1024] = { 0 };
-    int valread = recv(s, buffer, 1024, 0);
-    //printf("%s\n", buffer);
-    for (int i = 0; i < 1024; i++){
-        printf("%d:",buffer[i]);
+    int size;
+    while((size = recv(s, buffer, 1024, 0)) != 0){
+        //printf("%s\n", buffer);
+        for (int i = 0; i < 1024; i++){
+            printf("%c:",buffer[i]);
+            fputc(buffer[i],file);
+            if ((i%40) == 0)
+            {
+                fputc('\n',file);
+            }
+            
+        }
+        printf("\n\n####################################################################################################\n");
     }
+    
+    
+    
     
     //close(s);
     shutdown(statusListen, SHUT_RDWR);
