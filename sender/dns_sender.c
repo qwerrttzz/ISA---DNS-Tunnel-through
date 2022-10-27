@@ -25,6 +25,7 @@
 #include <unistd.h> 
 
 #define CHUNK_SIZE 34
+
 int stringToInt8(char* string, int8_t** array, int strlen){
     *array = (int8_t*) malloc(strlen);
     
@@ -184,10 +185,41 @@ struct DnsPacket createDnsPacket(char* data){
     return packet;
 }
 
+int8_t* prepare_dns_packet(char* domainName, char* dataToHide){
+    struct DnsPacket packet = createDnsPacket(dataToHide);
+    printf("header flags: %hX",packet.header.ident);
+    
+    int8_t* super_buffer = (int8_t*)malloc(sizeof(int8_t)*1000);
+    int16_t packet_size =  htons(16 + strlen(domainName)+1);//16 + domain_size
+    int position=0;
+    memcpy(&super_buffer[position], &packet_size, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.ident, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.flags, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfQuestion, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfAnswer, 1 * sizeof( short unsigned int )); 
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfAuthority, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfRRs, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], domainName, (strlen(domainName)+1) * sizeof( char )); 
+    memcpy(&super_buffer[position+=(strlen(domainName)+1)], &packet.question.qtype, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+2], &packet.question.qclass, 1 * sizeof( short int ));
+    
+    return super_buffer;
+}
 
+void printBuffer(int8_t* buffer,int len){
+    for(int i = 0; i <= len; i++){
+        printf("\n %hX %c",buffer[i],buffer[i]);
+        fflush(stdout);
+    }
+}
 
-
-
+void printArguments(Arguments myArguments){
+    printf("BASE_HOST: %s\n", myArguments.BASE_HOST);
+    printf("DST_FILEPATH: %s\n", myArguments.DST_FILEPATH);
+    printf("SRC_FILEPATH: %s\n", myArguments.SRC_FILEPATH);
+    printf("UPSTREAM_DNS_IP: %s\n", myArguments.UPSTREAM_DNS_IP);
+    fflush(stdout);
+}
 
 int main(int argc, char *argv[])
 {
@@ -195,11 +227,7 @@ int main(int argc, char *argv[])
     if(argument_parser(argv,argc,&myArguments) != 0){
         fprintf(stderr, "wrong arguments");
     }
-    printf("BASE_HOST: %s\n", myArguments.BASE_HOST);
-    printf("DST_FILEPATH: %s\n", myArguments.DST_FILEPATH);
-    printf("SRC_FILEPATH: %s\n", myArguments.SRC_FILEPATH);
-    printf("UPSTREAM_DNS_IP: %s\n", myArguments.UPSTREAM_DNS_IP);
-    fflush(stdout);
+    printArguments(myArguments);
     //////////////////////////////////////////////////////////////////
     int family = PF_INET;
     int type = SOCK_STREAM;
@@ -225,80 +253,36 @@ int main(int argc, char *argv[])
     int foreignAddressSize = sizeof(foreignAddress);
     int status = connect(socketId, (struct sockaddr *) &foreignAddress, foreignAddressSize);
     
-    
     char data[CHUNK_SIZE+1] = {0};
-    //char sendpacket[sizeof(struct dnsPacket)];
     char character;
     
     //vybranie medzy suborom a stdin
     FILE* file;
     if(myArguments.srcFilePathExists == 1){
-        
         file = fopen(myArguments.SRC_FILEPATH, "r");
-        
     }
     else{
         file = stdin;
     }
     
-    
-    
-        
-    
     int counter = 0;
     while ((character = fgetc(file)) != EOF){
         strncat(data, &character, 1);
         if (counter == CHUNK_SIZE){
-            
-            
-            struct DnsPacket packet = createDnsPacket(data);
-            printf("header flags: %hX",packet.header.ident);
-            //for (int i = 0; i < 12; i++)
-            //{
-            //    printf("\nname: %hX",packet.question.name[i]);
-            //    //packet.question.name[i] = 0x3;
-            //}
-            int8_t super_buffer[1000] = { 0 };
-            
-            char domain[16] = "\03www\06google\03com\00";
-            int domain_size = 16;
-            int16_t packet_size =  htons(16 + domain_size);//16 + domain_size
-            
-            int position=0;
-            memcpy( &super_buffer[position], &packet_size, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+=2], &packet.header.ident, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+=2], &packet.header.flags, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+=2], &packet.header.numberOfQuestion, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+=2], &packet.header.numberOfAnswer, 1 * sizeof( short unsigned int )); 
-            memcpy( &super_buffer[position+=2], &packet.header.numberOfAuthority, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+=2], &packet.header.numberOfRRs, 1 * sizeof( short int ));
+            int domain_size = 17;
+            char domain[17] = "\03www\07pornhub\03com\00";
 
-            memcpy( &super_buffer[position+=2], &domain, domain_size * sizeof( char )); 
-
-            memcpy( &super_buffer[position+=domain_size], &packet.question.qtype, 1 * sizeof( short int ));
-            memcpy( &super_buffer[position+2], &packet.question.qclass, 1 * sizeof( short int ));
-            
-            for (int i = 0; i <= position; i++)
-            {
-                printf("\n %hX %c",super_buffer[i],super_buffer[i]);
-                fflush(stdout);
-            }
-            
-            
-            send(socketId, &super_buffer, sizeof(int8_t)*(18 + domain_size),0);
-            
-            
-        
-                      
+            int8_t* super_buffer;
+            super_buffer = prepare_dns_packet(domain, data);
+            printBuffer(super_buffer, 32);
+            send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domain)+1),0);
             strcpy(data,"\0");
             counter = 0;
             break;
         }
-        
-       
         counter++;
     }
-    printf("filepath:%s\n", myArguments.SRC_FILEPATH);
+    printf("filepath:%s \n", myArguments.SRC_FILEPATH);
     
     char buffer[1024] = { 0 };
     int valread = recv(socketId, buffer, 1024, 0);
