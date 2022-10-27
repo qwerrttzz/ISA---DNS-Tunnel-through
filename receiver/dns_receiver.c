@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 typedef struct arguments {
     char* BASE_HOST;
@@ -42,7 +43,7 @@ int main(int argc, char *argv[])
 
     int family = PF_INET;
     int type = SOCK_STREAM;
-    int protocol = 0;
+    int protocol = IPPROTO_TCP;
     int socketId = socket(family, type, protocol);
 
     struct sockaddr_in serverAddress;
@@ -65,7 +66,7 @@ int main(int argc, char *argv[])
     while((size = recv(s, buffer, 1024, 0)) != 0){
         //printf("%s\n", buffer);
         for (int i = 0; i < 1024; i++){
-            printf("%c:",buffer[i]);
+            printf("%hX:",buffer[i]);
             fputc(buffer[i],file);
             if ((i%40) == 0)
             {
@@ -79,7 +80,7 @@ int main(int argc, char *argv[])
     
     
     
-    //close(s);
+    close(socketId);
     shutdown(statusListen, SHUT_RDWR);
     return 0;
 }

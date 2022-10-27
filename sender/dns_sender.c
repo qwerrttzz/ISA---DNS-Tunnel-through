@@ -17,13 +17,25 @@
 //[SRC_FILEPATH] cesta k souboru který bude odesílán                                            -Done
 //    pokud není myspecifikovano pak program čte data ze STDIN
 
+#include <stdlib.h> //TODO do i need that?
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <string.h>
 #include <unistd.h> 
 
-#define CHUNK_SIZE 10
+#define CHUNK_SIZE 34
+int stringToInt8(char* string, int8_t** array, int strlen){
+    *array = (int8_t*) malloc(strlen);
+    
+    for (int i = 0; i < strlen; i++)
+    {
+        (*array)[i] = (int8_t) string[i];
+        printf("char:%c int:%d\n",(char)string[i],(*array)[i]);
+    }
+    return 0;
+}
+
 int findSystemDnsServer(char* dnsIP){
     printf("resolv.conf output\n");
     
@@ -50,8 +62,6 @@ int findSystemDnsServer(char* dnsIP){
         else{
             strncat(word, &ch, 1);   
         }
-        
-        
     }
     
     if (nextWordImportant == 2){
@@ -86,53 +96,98 @@ int argument_parser(char** argv, int argc, Arguments* myArguments){
                 break; 
         }
     }
-    
+
     int argument_number=1;
     for(; optind < argc; optind++){
         switch (argument_number)
         {
-        case 1:
-            myArguments->BASE_HOST = argv[optind];
-            break;
-        case 2:
-            myArguments->DST_FILEPATH = argv[optind];
-            break;
-        case 3:
-            myArguments->srcFilePathExists = 1;
-            myArguments->SRC_FILEPATH = argv[optind];
-            break;
-        default:
-            break;
+            case 1:
+                printf("wtf %s",argv[optind]);
+                myArguments->BASE_HOST = argv[optind];
+                break;
+            case 2:
+                myArguments->DST_FILEPATH = argv[optind];
+                break;
+            case 3:
+                myArguments->srcFilePathExists = 1;
+                myArguments->SRC_FILEPATH = argv[optind];
+                break;
+            default:
+                break;
         }
         printf("extra arguments: %d %s\n",optind, argv[optind]); 
         argument_number++;
     }
-
+    
     return 0;
 }
 
-struct dnsPacket{
-    char ident;
-    char ident2;
-    unsigned short int numberOfQuestion;
-    unsigned short int numberOfAnswer;
-    unsigned short int numberOfAuthority;
-    unsigned short int numberOfRRs;
-    char dirtyData[500];
+struct PacketLenght{
+    uint16_t len;
 };
 
-struct dnsPacket createDnsPacket(char* data){
-    struct dnsPacket packet;
-    packet.ident = 0;
-    packet.ident2 = 0;
-    packet.numberOfQuestion = 0;
-    packet.numberOfAnswer = 0;
-    packet.numberOfAuthority = 0;
-    packet.numberOfRRs = 0;
-    strcpy(packet.dirtyData, data);
+struct DnsPacketHeader{
+    uint16_t ident;
+    uint16_t flags;
+    uint16_t numberOfQuestion;
+    uint16_t numberOfAnswer;
+    uint16_t numberOfAuthority;
+    uint16_t numberOfRRs;
+};
 
+struct DnsQuestion{
+    //uint8_t* name;
+    //uint8_t* whatever;
+    uint16_t qtype;
+    uint16_t qclass;
+};
+struct DnsPacket{
+    struct PacketLenght packetLen;
+    struct DnsPacketHeader header;
+    struct DnsQuestion question;
+};
+
+short int createDnsFlags(){
+    return 256;
+}
+struct DnsPacket createDnsPacket(char* data){ 
+    struct PacketLenght packetLen;
+    packetLen.len = htons(100);
+
+    struct DnsPacketHeader packetHeader;
+    packetHeader.ident = htons(0x5678);//1
+    packetHeader.flags = htons(createDnsFlags());
+    packetHeader.numberOfQuestion = htons(1);//1
+    packetHeader.numberOfAnswer = htons(0);
+    packetHeader.numberOfAuthority = htons(0);
+    packetHeader.numberOfRRs = htons(0);
+
+    
+    struct DnsQuestion packetQuestion;
+    char hostname[] = "\03www\03sme\02sk";
+    int8_t* int_hostname;
+    stringToInt8(hostname, &int_hostname, strlen(hostname));
+    
+    //packetQuestion.name = int_hostname;
+    //packetQuestion.whatever = "\03abc";
+    packetQuestion.qtype = htons(1);//2
+    packetQuestion.qclass = htons(1);//1
+    //printf("QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQuestion %d\n", int_hostname);
+    //fflush(stdout);
+    
+    
+    struct DnsPacket packet;
+    packet.packetLen = packetLen;
+    packet.header = packetHeader;
+    packet.question = packetQuestion;
+    
     return packet;
 }
+
+
+
+
+
 
 int main(int argc, char *argv[])
 {
@@ -144,11 +199,11 @@ int main(int argc, char *argv[])
     printf("DST_FILEPATH: %s\n", myArguments.DST_FILEPATH);
     printf("SRC_FILEPATH: %s\n", myArguments.SRC_FILEPATH);
     printf("UPSTREAM_DNS_IP: %s\n", myArguments.UPSTREAM_DNS_IP);
-    
+    fflush(stdout);
     //////////////////////////////////////////////////////////////////
     int family = PF_INET;
     int type = SOCK_STREAM;
-    int protocol = 0;
+    int protocol = IPPROTO_TCP;
     int queueLimit = 1000;
     int socketId = socket(family, type, protocol);
     
@@ -166,37 +221,78 @@ int main(int argc, char *argv[])
     struct sockaddr_in foreignAddress;
     foreignAddress.sin_family = AF_INET;
     foreignAddress.sin_addr.s_addr = inet_addr(dnsServerAdress);
-    foreignAddress.sin_port = htons(8000);                      //TODO nastav na 53
+    foreignAddress.sin_port = htons(53);                      //TODO nastav na 53
     int foreignAddressSize = sizeof(foreignAddress);
     int status = connect(socketId, (struct sockaddr *) &foreignAddress, foreignAddressSize);
     
     
     char data[CHUNK_SIZE+1] = {0};
-    struct dnsPacket packet;
-    char sendpacket[sizeof(struct dnsPacket)];
+    //char sendpacket[sizeof(struct dnsPacket)];
     char character;
-    int counter = 0;
-
+    
     //vybranie medzy suborom a stdin
     FILE* file;
     if(myArguments.srcFilePathExists == 1){
-        fflush(stdout);
+        
         file = fopen(myArguments.SRC_FILEPATH, "r");
+        
     }
     else{
         file = stdin;
     }
+    
+    
+    
         
+    
+    int counter = 0;
     while ((character = fgetc(file)) != EOF){
         strncat(data, &character, 1);
         if (counter == CHUNK_SIZE){
             
-            packet = createDnsPacket(data);
-            memcpy(sendpacket, &packet, sizeof(packet));
-            send(socketId, sendpacket, sizeof(sendpacket), 0);
             
+            struct DnsPacket packet = createDnsPacket(data);
+            printf("header flags: %hX",packet.header.ident);
+            //for (int i = 0; i < 12; i++)
+            //{
+            //    printf("\nname: %hX",packet.question.name[i]);
+            //    //packet.question.name[i] = 0x3;
+            //}
+            int8_t super_buffer[1000] = { 0 };
+            
+            char domain[16] = "\03www\06google\03com\00";
+            int domain_size = 16;
+            int16_t packet_size =  htons(16 + domain_size);//16 + domain_size
+            
+            int position=0;
+            memcpy( &super_buffer[position], &packet_size, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+=2], &packet.header.ident, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+=2], &packet.header.flags, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+=2], &packet.header.numberOfQuestion, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+=2], &packet.header.numberOfAnswer, 1 * sizeof( short unsigned int )); 
+            memcpy( &super_buffer[position+=2], &packet.header.numberOfAuthority, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+=2], &packet.header.numberOfRRs, 1 * sizeof( short int ));
+
+            memcpy( &super_buffer[position+=2], &domain, domain_size * sizeof( char )); 
+
+            memcpy( &super_buffer[position+=domain_size], &packet.question.qtype, 1 * sizeof( short int ));
+            memcpy( &super_buffer[position+2], &packet.question.qclass, 1 * sizeof( short int ));
+            
+            for (int i = 0; i <= position; i++)
+            {
+                printf("\n %hX %c",super_buffer[i],super_buffer[i]);
+                fflush(stdout);
+            }
+            
+            
+            send(socketId, &super_buffer, sizeof(int8_t)*(18 + domain_size),0);
+            
+            
+        
+                      
             strcpy(data,"\0");
             counter = 0;
+            break;
         }
         
        
@@ -204,16 +300,18 @@ int main(int argc, char *argv[])
     }
     printf("filepath:%s\n", myArguments.SRC_FILEPATH);
     
-    
     char buffer[1024] = { 0 };
     int valread = recv(socketId, buffer, 1024, 0);
     printf("\n\nanswer of server\n");
     for (int i = 0; i < 1024; i++){
             printf("%d:",buffer[i]);
     }
-        
+
+    //close(socketId);
     return 0;
 }
+
+
 
 
 
