@@ -26,6 +26,8 @@
 
 #define CHUNK_SIZE 34
 
+
+
 int stringToInt8(char* string, int8_t** array, int strlen){
     *array = (int8_t*) malloc(strlen);
     
@@ -167,15 +169,9 @@ struct DnsPacket createDnsPacket(char* data){
     struct DnsQuestion packetQuestion;
     char hostname[] = "\03www\03sme\02sk";
     int8_t* int_hostname;
-    stringToInt8(hostname, &int_hostname, strlen(hostname));
-    
-    //packetQuestion.name = int_hostname;
-    //packetQuestion.whatever = "\03abc";
+    //stringToInt8(hostname, &int_hostname, strlen(hostname));
     packetQuestion.qtype = htons(1);//2
     packetQuestion.qclass = htons(1);//1
-    //printf("QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQuestion %d\n", int_hostname);
-    //fflush(stdout);
-    
     
     struct DnsPacket packet;
     packet.packetLen = packetLen;
@@ -221,6 +217,32 @@ void printArguments(Arguments myArguments){
     fflush(stdout);
 }
 
+int prepareDomainName(char* domainName){
+    int domainLen = strlen(domainName);
+    char* tmp = malloc(sizeof(char)* (domainLen+1));
+    
+    int wordLen = 0;
+    for (int i = domainLen-1; i >= 0; i--){
+        if (domainName[i] == '.'){
+            tmp[i+1] = (char) wordLen;
+            wordLen=0;
+        }
+        else{
+            tmp[i+1] = domainName[i];
+            wordLen++;
+        }
+
+        if(i == 0){
+            tmp[i] = (char) wordLen;
+        }
+    }
+    printf("new domainName %s\n",tmp);
+    
+    strcpy(domainName,tmp);
+    free(tmp);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     Arguments myArguments;
@@ -228,6 +250,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "wrong arguments");
     }
     printArguments(myArguments);
+
     //////////////////////////////////////////////////////////////////
     int family = PF_INET;
     int type = SOCK_STREAM;
@@ -265,17 +288,19 @@ int main(int argc, char *argv[])
         file = stdin;
     }
     
+    char* domainName = myArguments.BASE_HOST;
+    prepareDomainName(domainName);
+
     int counter = 0;
     while ((character = fgetc(file)) != EOF){
         strncat(data, &character, 1);
         if (counter == CHUNK_SIZE){
-            int domain_size = 17;
-            char domain[17] = "\03www\07pornhub\03com\00";
-
+            
             int8_t* super_buffer;
-            super_buffer = prepare_dns_packet(domain, data);
+            super_buffer = prepare_dns_packet(domainName, data);
             printBuffer(super_buffer, 32);
-            send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domain)+1),0);
+            send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+1),0);
+            free(super_buffer);
             strcpy(data,"\0");
             counter = 0;
             break;
