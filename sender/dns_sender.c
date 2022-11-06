@@ -24,9 +24,48 @@
 #include <string.h>
 #include <unistd.h> 
 
-#define CHUNK_SIZE 34
+#define CHUNK_SIZE 5
 
+static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+                                'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+                                'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+                                'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+                                'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+                                'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+                                'w', 'x', 'y', 'z', '0', '1', '2', '3',
+                                '4', '5', '6', '7', '8', '9', '+', '/'};
+static char *decoding_table = NULL;
+static int mod_table[] = {0, 2, 1};
 
+char *base64_encode(const unsigned char *data,
+                    size_t input_length,
+                    size_t *output_length) {
+
+    *output_length = (4 * ((input_length + 2) / 3) + 1);//for appending .
+
+    char *encoded_data = malloc(*output_length);
+    if (encoded_data == NULL) return NULL;
+
+    for (int i = 0, j = 0; i < input_length;) {
+
+        uint32_t octet_a = i < input_length ? (unsigned char)data[i++] : 0;
+        uint32_t octet_b = i < input_length ? (unsigned char)data[i++] : 0;
+        uint32_t octet_c = i < input_length ? (unsigned char)data[i++] : 0;
+
+        uint32_t triple = (octet_a << 0x10) + (octet_b << 0x08) + octet_c;
+
+        encoded_data[j++] = encoding_table[(triple >> 3 * 6) & 0x3F];
+        encoded_data[j++] = encoding_table[(triple >> 2 * 6) & 0x3F];
+        encoded_data[j++] = encoding_table[(triple >> 1 * 6) & 0x3F];
+        encoded_data[j++] = encoding_table[(triple >> 0 * 6) & 0x3F];
+    }
+
+    for (int i = 0; i < mod_table[input_length % 3]; i++)
+        encoded_data[*output_length - 1 - i] = '=';
+
+    char ending = '.';
+    return encoded_data;//strncat(encoded_data, &ending, 1);
+}
 
 int stringToInt8(char* string, int8_t** array, int strlen){
     *array = (int8_t*) malloc(strlen);
@@ -144,6 +183,7 @@ struct DnsQuestion{
     uint16_t qtype;
     uint16_t qclass;
 };
+
 struct DnsPacket{
     struct PacketLenght packetLen;
     struct DnsPacketHeader header;
@@ -152,69 +192,6 @@ struct DnsPacket{
 
 short int createDnsFlags(){
     return 256;
-}
-struct DnsPacket createDnsPacket(char* data){ 
-    struct PacketLenght packetLen;
-    packetLen.len = htons(100);
-
-    struct DnsPacketHeader packetHeader;
-    packetHeader.ident = htons(0x5678);//1
-    packetHeader.flags = htons(createDnsFlags());
-    packetHeader.numberOfQuestion = htons(1);//1
-    packetHeader.numberOfAnswer = htons(0);
-    packetHeader.numberOfAuthority = htons(0);
-    packetHeader.numberOfRRs = htons(0);
-
-    
-    struct DnsQuestion packetQuestion;
-    char hostname[] = "\03www\03sme\02sk";
-    int8_t* int_hostname;
-    //stringToInt8(hostname, &int_hostname, strlen(hostname));
-    packetQuestion.qtype = htons(1);//2
-    packetQuestion.qclass = htons(1);//1
-    
-    struct DnsPacket packet;
-    packet.packetLen = packetLen;
-    packet.header = packetHeader;
-    packet.question = packetQuestion;
-    
-    return packet;
-}
-
-int8_t* prepare_dns_packet(char* domainName, char* dataToHide){
-    struct DnsPacket packet = createDnsPacket(dataToHide);
-    printf("header flags: %hX",packet.header.ident);
-    
-    int8_t* super_buffer = (int8_t*)malloc(sizeof(int8_t)*1000);
-    int16_t packet_size =  htons(16 + strlen(domainName)+1);//16 + domain_size
-    int position=0;
-    memcpy(&super_buffer[position], &packet_size, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], &packet.header.ident, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], &packet.header.flags, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], &packet.header.numberOfQuestion, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], &packet.header.numberOfAnswer, 1 * sizeof( short unsigned int )); 
-    memcpy(&super_buffer[position+=2], &packet.header.numberOfAuthority, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], &packet.header.numberOfRRs, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+=2], domainName, (strlen(domainName)+1) * sizeof( char )); 
-    memcpy(&super_buffer[position+=(strlen(domainName)+1)], &packet.question.qtype, 1 * sizeof( short int ));
-    memcpy(&super_buffer[position+2], &packet.question.qclass, 1 * sizeof( short int ));
-    
-    return super_buffer;
-}
-
-void printBuffer(int8_t* buffer,int len){
-    for(int i = 0; i <= len; i++){
-        printf("\n %hX %c",buffer[i],buffer[i]);
-        fflush(stdout);
-    }
-}
-
-void printArguments(Arguments myArguments){
-    printf("BASE_HOST: %s\n", myArguments.BASE_HOST);
-    printf("DST_FILEPATH: %s\n", myArguments.DST_FILEPATH);
-    printf("SRC_FILEPATH: %s\n", myArguments.SRC_FILEPATH);
-    printf("UPSTREAM_DNS_IP: %s\n", myArguments.UPSTREAM_DNS_IP);
-    fflush(stdout);
 }
 
 int prepareDomainName(char* domainName){
@@ -243,6 +220,92 @@ int prepareDomainName(char* domainName){
     return 0;
 }
 
+struct DnsPacket createDnsPacket(char* data){ 
+    struct PacketLenght packetLen;
+    packetLen.len = htons(100);
+
+    struct DnsPacketHeader packetHeader;
+    packetHeader.ident = htons(0x5678);//1
+    packetHeader.flags = htons(createDnsFlags());
+    packetHeader.numberOfQuestion = htons(1);//1
+    packetHeader.numberOfAnswer = htons(0);
+    packetHeader.numberOfAuthority = htons(0);
+    packetHeader.numberOfRRs = htons(0);
+
+    
+    struct DnsQuestion packetQuestion;
+    char hostname[] = "\03www\03sme\02sk";
+    int8_t* int_hostname;
+    //stringToInt8(hostname, &int_hostname, strlen(hostname));
+    packetQuestion.qtype = htons(1);//2
+    packetQuestion.qclass = htons(1);//1
+    
+    struct DnsPacket packet;
+    packet.packetLen = packetLen;
+    packet.header = packetHeader;
+    packet.question = packetQuestion;
+    
+    return packet;
+}
+
+int8_t* prepare_dns_packet(char* domainName, char* dataToHide, long unsigned int* encodedSize){
+    struct DnsPacket packet = createDnsPacket(dataToHide);
+    printf("header flags: %hX",packet.header.ident);
+
+    //sizeof(char)*(strlen(dataToHide)+(strlen(dataToHide)%3));
+    char* data = "helloo";
+    char* encodedStr = base64_encode(dataToHide, strlen(dataToHide), encodedSize);                                      //TODO neviem preco+ 1 CHUNK_SIZE+1
+    printf("string:%s\nencodedStr:$%s$\n domainName:$%s$",dataToHide, encodedStr, domainName);
+    
+    int8_t* super_buffer = (int8_t*)malloc(sizeof(int8_t)*1000);
+    int16_t packet_size =  htons(16 + strlen(domainName)+*encodedSize+1);//16 + domain_size
+    int position=0;
+    memcpy(&super_buffer[position], &packet_size, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.ident, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.flags, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfQuestion, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfAnswer, 1 * sizeof( short unsigned int )); 
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfAuthority, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+=2], &packet.header.numberOfRRs, 1 * sizeof( short int ));
+    
+    char sizee = (char)(*encodedSize-1);                                                                        //TODO neviem preco -1
+    
+    memcpy(&super_buffer[position+=2], &sizee, 1 * sizeof( char ));
+    memcpy(&super_buffer[position+=1], encodedStr, *encodedSize); 
+    memcpy(&super_buffer[position+=*encodedSize-1], domainName, (strlen(domainName)+1) * sizeof( char ));       //TODO neviem preco -1
+    
+    memcpy(&super_buffer[position+=(strlen(domainName)+1)], &packet.question.qtype, 1 * sizeof( short int ));
+    memcpy(&super_buffer[position+2], &packet.question.qclass, 1 * sizeof( short int ));
+    
+    return super_buffer;
+}
+
+void printBuffer(int8_t* buffer,int len){
+    for(int i = 0; i <= len; i++){
+        printf("\n %hX %c",buffer[i],buffer[i]);
+        fflush(stdout);
+    }
+}
+
+void printArguments(Arguments myArguments){
+    printf("BASE_HOST: %s\n", myArguments.BASE_HOST);
+    printf("DST_FILEPATH: %s\n", myArguments.DST_FILEPATH);
+    printf("SRC_FILEPATH: %s\n", myArguments.SRC_FILEPATH);
+    printf("UPSTREAM_DNS_IP: %s\n", myArguments.UPSTREAM_DNS_IP);
+    fflush(stdout);
+}
+
+int prepareRead(FILE** file, Arguments myArguments){
+    if(myArguments.srcFilePathExists == 1){
+        *file = fopen(myArguments.SRC_FILEPATH, "r");
+    }
+    else{
+        *file = stdin;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     Arguments myArguments;
@@ -251,14 +314,7 @@ int main(int argc, char *argv[])
     }
     printArguments(myArguments);
 
-    //////////////////////////////////////////////////////////////////
-    int family = PF_INET;
-    int type = SOCK_STREAM;
-    int protocol = IPPROTO_TCP;
-    int queueLimit = 1000;
-    int socketId = socket(family, type, protocol);
-    
-    //nastavenie adresy podla -u
+//set dns server address    
     char dnsServerAdress[100];
     if (myArguments.dnsIpExists == 1){
         //TODO chack ci nie je addressa moc velka 
@@ -267,48 +323,58 @@ int main(int argc, char *argv[])
     else{
         findSystemDnsServer(dnsServerAdress);
     }
-    
-    //nameserver 127.0.0.53
+
+//set reading file from arguments or stdind
+    FILE* file;
+    prepareRead(&file,myArguments);        
+    char* domainName = myArguments.BASE_HOST;
+    prepareDomainName(domainName);
+
+//connection
+    int family = PF_INET;
+    int type = SOCK_STREAM;
+    int protocol = IPPROTO_TCP;
+    int queueLimit = 1000;
+    int socketId = socket(family, type, protocol);
     struct sockaddr_in foreignAddress;
     foreignAddress.sin_family = AF_INET;
     foreignAddress.sin_addr.s_addr = inet_addr(dnsServerAdress);
     foreignAddress.sin_port = htons(53);                      //TODO nastav na 53
     int foreignAddressSize = sizeof(foreignAddress);
+    
     int status = connect(socketId, (struct sockaddr *) &foreignAddress, foreignAddressSize);
-    
-    char data[CHUNK_SIZE+1] = {0};
+    char data[100] = {0};
     char character;
-    
-    //vybranie medzy suborom a stdin
-    FILE* file;
-    if(myArguments.srcFilePathExists == 1){
-        file = fopen(myArguments.SRC_FILEPATH, "r");
-    }
-    else{
-        file = stdin;
-    }
-    
-    char* domainName = myArguments.BASE_HOST;
-    prepareDomainName(domainName);
 
+    
+//first packet
+    int8_t* super_buffer;
+    long unsigned int encodedSize = 0;
+    super_buffer = prepare_dns_packet(domainName, myArguments.DST_FILEPATH, &encodedSize);
+    printBuffer(super_buffer, (18 + strlen(domainName)+ 1 + encodedSize));
+    send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+ 1 + encodedSize),0);
+    free(super_buffer);
+    strcpy(data,"\0");
+
+//rest of packets
     int counter = 0;
     while ((character = fgetc(file)) != EOF){
+        printf("new char %c\n",character);
         strncat(data, &character, 1);
         if (counter == CHUNK_SIZE){
-            
             int8_t* super_buffer;
-            super_buffer = prepare_dns_packet(domainName, data);
-            printBuffer(super_buffer, 32);
-            send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+1),0);
+            long unsigned int encodedSize = 0;
+            super_buffer = prepare_dns_packet(domainName, data, &encodedSize);
+            printBuffer(super_buffer, (18 + strlen(domainName)+ 1 + encodedSize));
+            send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+ 1 + encodedSize),0);
             free(super_buffer);
             strcpy(data,"\0");
             counter = 0;
-            break;
-        }
+        } 
         counter++;
     }
-    printf("filepath:%s \n", myArguments.SRC_FILEPATH);
-    
+
+//answer    
     char buffer[1024] = { 0 };
     int valread = recv(socketId, buffer, 1024, 0);
     printf("\n\nanswer of server\n");
@@ -316,7 +382,6 @@ int main(int argc, char *argv[])
             printf("%d:",buffer[i]);
     }
 
-    //close(socketId);
     return 0;
 }
 
