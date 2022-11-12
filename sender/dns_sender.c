@@ -24,7 +24,7 @@
 #include <string.h>
 #include <unistd.h> 
 
-#define CHUNK_SIZE 5
+#define CHUNK_SIZE 20
 
 static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
                                 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
@@ -37,6 +37,50 @@ static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
 static char *decoding_table = NULL;
 static int mod_table[] = {0, 2, 1};
 
+typedef struct arguments {
+    short int dnsIpExists;
+    char* UPSTREAM_DNS_IP;
+    char* BASE_HOST;
+    char* DST_FILEPATH;
+    short int srcFilePathExists;
+    char* SRC_FILEPATH;
+} Arguments;
+
+int checkAddress(char* address){
+    char* myAddress = strdup(address); 
+    const char s[2] = ".";
+    char* token = strtok(myAddress, s);
+    
+    while(token != NULL){
+        if(strlen(token) > 3){                            //moc vela cisel
+            fprintf(stderr,"ERROR: too long ip address ");
+            return 1;
+        }
+        for (int i = 0; i < strlen(token); i++)         //nie su cisla
+        {
+            if((int)token[i] < 48 || (int)token[i] > 57){
+                fprintf(stderr,"ERROR: wrong characters in ip address %d",(int)token[i]);
+                return 1;
+            }
+        }
+        token = strtok(NULL, s);
+    }
+    free(myAddress);
+
+    return 0;
+}
+
+int checkArguments(Arguments myArguments){
+    if (myArguments.dnsIpExists == 1)
+    {
+        if(checkAddress(myArguments.UPSTREAM_DNS_IP) != 0){
+            return 1;
+        }
+    }
+
+    return 0;
+    
+}
 char *base64_encode(const unsigned char *data,
                     size_t input_length,
                     size_t *output_length) {
@@ -116,14 +160,6 @@ int findSystemDnsServer(char* dnsIP){
     }
 }
 
-typedef struct arguments {
-    short int dnsIpExists;
-    char* UPSTREAM_DNS_IP;
-    char* BASE_HOST;
-    char* DST_FILEPATH;
-    short int srcFilePathExists;
-    char* SRC_FILEPATH;
-} Arguments;
 
 int argument_parser(char** argv, int argc, Arguments* myArguments){
     int opt;
@@ -220,12 +256,12 @@ int prepareDomainName(char* domainName){
     return 0;
 }
 
-struct DnsPacket createDnsPacket(char* data){ 
+struct DnsPacket createDnsPacket(char* data, short int id){ 
     struct PacketLenght packetLen;
     packetLen.len = htons(100);
 
     struct DnsPacketHeader packetHeader;
-    packetHeader.ident = htons(0x5678);//1
+    packetHeader.ident = htons(id);//1
     packetHeader.flags = htons(createDnsFlags());
     packetHeader.numberOfQuestion = htons(1);//1
     packetHeader.numberOfAnswer = htons(0);
@@ -248,8 +284,8 @@ struct DnsPacket createDnsPacket(char* data){
     return packet;
 }
 
-int8_t* prepare_dns_packet(char* domainName, char* dataToHide, long unsigned int* encodedSize){
-    struct DnsPacket packet = createDnsPacket(dataToHide);
+int8_t* prepare_dns_packet(char* domainName, char* dataToHide, long unsigned int* encodedSize, short int id){
+    struct DnsPacket packet = createDnsPacket(dataToHide, id);
     printf("header flags: %hX",packet.header.ident);
 
     //sizeof(char)*(strlen(dataToHide)+(strlen(dataToHide)%3));
@@ -281,10 +317,25 @@ int8_t* prepare_dns_packet(char* domainName, char* dataToHide, long unsigned int
 }
 
 void printBuffer(int8_t* buffer,int len){
+    printf("\n $$$$$$$$$$$$$$$$$\n");
     for(int i = 0; i <= len; i++){
-        printf("\n %hX %c",buffer[i],buffer[i]);
+        if (buffer[i]>32 && buffer[i]<126)
+        {
+            printf("%c  ",buffer[i]);
+        }
+        else{
+            printf(".  ");
+        }
+        
         fflush(stdout);
     }
+    printf("\n");
+    fflush(stdout);
+    for(int i = 0; i <= len; i++){
+        printf("%02hX ",buffer[i]);
+        fflush(stdout);
+    }
+    printf("\n $$$$$$$$$$$$$$$$$\n");
 }
 
 void printArguments(Arguments myArguments){
@@ -298,9 +349,18 @@ void printArguments(Arguments myArguments){
 int prepareRead(FILE** file, Arguments myArguments){
     if(myArguments.srcFilePathExists == 1){
         *file = fopen(myArguments.SRC_FILEPATH, "r");
+        if (*file == NULL){
+            fprintf(stderr,"ERROR: sending file doesnt exists");
+            return 1;
+        }
+    }
+    else if((fseek(stdin, 0, SEEK_END), ftell(stdin)) > 0){
+        printf("zdenooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo");
+        *file = stdin;
     }
     else{
-        *file = stdin;
+        fprintf(stderr,"ERROR: no data to send");
+        return 1;
     }
 
     return 0;
@@ -308,16 +368,21 @@ int prepareRead(FILE** file, Arguments myArguments){
 
 int main(int argc, char *argv[])
 {
+//parse arguments
     Arguments myArguments;
     if(argument_parser(argv,argc,&myArguments) != 0){
-        fprintf(stderr, "wrong arguments");
+        fprintf(stderr, "ERROR: wrong arguments");
     }
-    printArguments(myArguments);
+    //printArguments(myArguments);
+
+//chack arguments
+    if(checkArguments(myArguments) != 0){
+        return 1;
+    }
 
 //set dns server address    
     char dnsServerAdress[100];
     if (myArguments.dnsIpExists == 1){
-        //TODO chack ci nie je addressa moc velka 
         strcpy(dnsServerAdress, myArguments.UPSTREAM_DNS_IP);
     }
     else{
@@ -326,7 +391,10 @@ int main(int argc, char *argv[])
 
 //set reading file from arguments or stdind
     FILE* file;
-    prepareRead(&file,myArguments);        
+    if(prepareRead(&file,myArguments) != 0){
+        return 1;
+    }
+    
     char* domainName = myArguments.BASE_HOST;
     prepareDomainName(domainName);
 
@@ -339,18 +407,20 @@ int main(int argc, char *argv[])
     struct sockaddr_in foreignAddress;
     foreignAddress.sin_family = AF_INET;
     foreignAddress.sin_addr.s_addr = inet_addr(dnsServerAdress);
-    foreignAddress.sin_port = htons(53);                      //TODO nastav na 53
+    foreignAddress.sin_port = htons(8000);                      //TODO nastav na 53
     int foreignAddressSize = sizeof(foreignAddress);
     
     int status = connect(socketId, (struct sockaddr *) &foreignAddress, foreignAddressSize);
     char data[100] = {0};
     char character;
-
+    short int id=1000;
     
-//first packet
+//first packet with path
     int8_t* super_buffer;
     long unsigned int encodedSize = 0;
-    super_buffer = prepare_dns_packet(domainName, myArguments.DST_FILEPATH, &encodedSize);
+    super_buffer = prepare_dns_packet(domainName, myArguments.DST_FILEPATH, &encodedSize,id);
+    
+    
     printBuffer(super_buffer, (18 + strlen(domainName)+ 1 + encodedSize));
     send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+ 1 + encodedSize),0);
     free(super_buffer);
@@ -359,12 +429,13 @@ int main(int argc, char *argv[])
 //rest of packets
     int counter = 0;
     while ((character = fgetc(file)) != EOF){
+        id++;
         printf("new char %c\n",character);
         strncat(data, &character, 1);
         if (counter == CHUNK_SIZE){
             int8_t* super_buffer;
             long unsigned int encodedSize = 0;
-            super_buffer = prepare_dns_packet(domainName, data, &encodedSize);
+            super_buffer = prepare_dns_packet(domainName, data, &encodedSize,id);
             printBuffer(super_buffer, (18 + strlen(domainName)+ 1 + encodedSize));
             send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+ 1 + encodedSize),0);
             free(super_buffer);
@@ -374,8 +445,21 @@ int main(int argc, char *argv[])
         counter++;
     }
 
+//last packet
+    if (strlen(data)>0)
+    {
+        int8_t* super_buffer;
+        long unsigned int encodedSize = 0;
+        super_buffer = prepare_dns_packet(domainName, data, &encodedSize, id);
+        printBuffer(super_buffer, (18 + strlen(domainName)+ 1 + encodedSize));
+        send(socketId, super_buffer, sizeof(int8_t)*(18 + strlen(domainName)+ 1 + encodedSize),0);
+        free(super_buffer);
+        strcpy(data,"\0");
+    }
+    
+
 //answer    
-    char buffer[1024] = { 0 };
+    char buffer[10000] = { 0 };
     int valread = recv(socketId, buffer, 1024, 0);
     printf("\n\nanswer of server\n");
     for (int i = 0; i < 1024; i++){

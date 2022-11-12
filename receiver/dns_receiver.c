@@ -44,11 +44,11 @@ void printBuffer(char* buffer,int len){
 
 int getDataFromPacket(char* buffer,char* data, int* dataLen){
     *dataLen = (int)buffer[14];
-    printf("dlzka dat: %d\n", *dataLen);
+    //printf("dlzka dat: %d\n", *dataLen);
 
     int counter = 0;
     for (int i = 15; i < (15 + *dataLen); i++){
-        printf("data: %c\n", buffer[i]);
+        //printf("data: %c\n", buffer[i]);
         data[counter] = buffer[i];
         counter++;
     }
@@ -208,6 +208,32 @@ char* buildRelativePath(Arguments myArguments, int decodedLen, char* decodedData
     return destination;
 }
 
+int getPacketSize(char* buffer){
+    int jump = (int)buffer[14];
+    int dataCount = 14;
+    int counter = 0;
+    while (jump != 0)
+    {
+        dataCount = dataCount + jump+1;
+
+        //printf("                         jump: %d datacount: %d buffer: %hX\n",jump, dataCount,(int)buffer[dataCount]);
+        jump = (int)buffer[dataCount];
+        
+        fflush(stdout);    
+    }
+    
+    
+    return dataCount+5; //pricitam posledne flagy
+}
+
+void changeFlags(char* buffer){
+    int16_t header = 0x8183;
+    memcpy(&buffer[2], &header, 1 * sizeof( short int ));
+}
+
+void changeQuaryToResponse(char* buffer, int PacketLen){
+    changeFlags(buffer);
+}
 int main(int argc, char *argv[])
 {   
     //parsovanie argumentov 
@@ -225,7 +251,7 @@ int main(int argc, char *argv[])
     
     struct sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serverAddress.sin_addr.s_addr = inet_addr("127.0.0.53");//"127.0.0.53");
     serverAddress.sin_port = htons(8000);
     int serverAddressLen = sizeof(serverAddress);
 
@@ -238,8 +264,11 @@ int main(int argc, char *argv[])
     int socketId = socket(family, type, protocol);
     int statusBind = bind(socketId, (struct sockaddr *) &serverAddress, serverAddressLen);
     int statusListen = listen(socketId, queueLimit);
+    
+    printf("errors %d %d %d  \n",socketId, statusBind, statusListen);
+    fflush(stdout);
     int s = accept(socketId, (struct sockaddr *) &clientAddress, &clientAddressLen);
-
+    
 //receiving data
     char buffer[1024] = { 0 };
     int size;
@@ -269,11 +298,19 @@ int main(int argc, char *argv[])
         else if(first != 1){
             //write data from packets to file
             fprintf(file,"%s",decodedData);
+            fflush(file);
             printBuffer(buffer,strlen(buffer));
+            fflush(stdout);
         }
-
+            
+        //response
+        changeQuaryToResponse(buffer, getPacketSize(buffer));
+        
         printf("encoded data: %s\ndecoded data: %s \nfirst: %d",encoded_data,decodedData,first);
         printf("\n\n####################################################################################################\n");
+        write(s, buffer,getPacketSize(buffer));
+        printf("\ndecoded_data:%s\n",decodedData);
+        
         
     }
     

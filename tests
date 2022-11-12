@@ -1,0 +1,40 @@
+#main problems: 1) last packets go crazy
+#               2)
+
+################################# Server path tests
+
+./server aaa ./data/recieved_data                                                   allright
+./client example.com -u 127.0.0.53 data.txt ./data/sent_data/data.txt
+
+./server aaa ./data/recieved_data/                                                  posledny sa opakuje raz sa poprehadzovali trochu
+./client example.com -u 127.0.0.53 data.txt ./data/sent_data/data.txt
+
+predchadzajuce dva krat za sebou                                                    ok
+
+./server aaa ./data/recieved_data/data/data/data/data                               ok
+./client example.com -u 127.0.0.53 data.txt ./data/sent_data/data.txt
+
+./server aaa .///                                                                   netusim co sa stalo, aha zapisal do sucastneho adresara
+./client example.com -u 127.0.0.53 data.txt ./data/sent_data/data.txt
+
+./server aaa ./data///recieved_data/                                                zapisal do recieved data
+./client example.com -u 127.0.0.53 data.txt ./data/sent_data/data.txt
+
+
+################################# client stdin input tests
+
+comment: Whitout any data to send                               
+./client example.com -u 127.0.0.53 /data/sent_data/data.txt                         nepreslo #opravene
+./server aaa ./data/recieved_data/  
+
+./client example.com -u 127.0.0.53 /data/sent_data/data.txt <&0 ./data.txt          ok
+./server aaa ./data/recieved_data/
+
+################################# client paths tests
+
+comment: file that doesnt exist
+./client example.com -u 127.0.0.53 nonexistend.txt /data/sent_data/data.txt         segmentation fault #opravene
+./server aaa ./data/recieved_data/
+
+
+
